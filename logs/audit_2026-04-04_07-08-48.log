@@ -1,0 +1,7 @@
+[2026-04-04 07:08:48] Audit started
+[2026-04-04 07:08:48] Generating short report
+[2026-04-04 07:08:48] SHA256 hash saved: ./reports/kali_audit_short_2026-04-04_07-08-48.txt.sha256
+[2026-04-04 07:08:48] Email sending disabled
+[2026-04-04 07:08:48] Remote copy disabled
+[2026-04-04 07:08:48] Audit finished successfully
+[2026-04-04 07:08:48] Report saved to ./reports/kali_audit_short_2026-04-04_07-08-48.txt

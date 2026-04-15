@@ -1,0 +1,328 @@
+#!/bin/bash
+
+# ==================================================
+# Linux System Audit and Monitoring Script
+# Mini-project - NSCS
+# ==================================================
+
+set -u
+
+# -----------------------------
+# Load configuration file
+# -----------------------------
+CONFIG_FILE="./config.conf"
+
+if [ ! -f "$CONFIG_FILE" ]; then
+    echo "[ERROR] Configuration file not found: $CONFIG_FILE"
+    exit 1
+fi
+
+# shellcheck disable=SC1090
+source "$CONFIG_FILE"
+
+# -----------------------------
+# Default values if not defined
+# -----------------------------
+REPORT_DIR="${REPORT_DIR:-./reports}"
+LOG_DIR="${LOG_DIR:-./logs}"
+REPORT_TYPE="${REPORT_TYPE:-short}"
+EMAIL_ENABLED="${EMAIL_ENABLED:-false}"
+EMAIL_TO="${EMAIL_TO:-your_email@example.com}"
+REMOTE_ENABLED="${REMOTE_ENABLED:-false}"
+REMOTE_USER="${REMOTE_USER:-user}"
+REMOTE_HOST="${REMOTE_HOST:-127.0.0.1}"
+REMOTE_PATH="${REMOTE_PATH:-/tmp/remote_audit_reports}"
+
+# -----------------------------
+# Global variables
+# -----------------------------
+TIMESTAMP=$(date '+%Y-%m-%d_%H-%M-%S')
+HOSTNAME_VALUE=$(hostname)
+LOG_FILE="$LOG_DIR/audit_$TIMESTAMP.log"
+TEXT_REPORT="$REPORT_DIR/${HOSTNAME_VALUE}_audit_${REPORT_TYPE}_$TIMESTAMP.txt"
+
+# -----------------------------
+# Prepare directories
+# -----------------------------
+mkdir -p "$REPORT_DIR" "$LOG_DIR"
+
+# -----------------------------
+# Logging function
+# -----------------------------
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+}
+
+# -----------------------------
+# Write section title
+# -----------------------------
+write_section() {
+    echo >> "$TEXT_REPORT"
+    echo "==================================================" >> "$TEXT_REPORT"
+    echo "$1" >> "$TEXT_REPORT"
+    echo "==================================================" >> "$TEXT_REPORT"
+}
+
+# -----------------------------
+# Run command safely
+# -----------------------------
+run_cmd() {
+    local section_title="$1"
+    local command_text="$2"
+
+    write_section "$section_title"
+    echo "\$ $command_text" >> "$TEXT_REPORT"
+    eval "$command_text" >> "$TEXT_REPORT" 2>> "$LOG_FILE"
+
+    if [ $? -ne 0 ]; then
+        echo "[WARNING] Command failed: $command_text" >> "$TEXT_REPORT"
+        log "Command failed: $command_text"
+    fi
+}
+
+# -----------------------------
+# Write report header
+# -----------------------------
+write_header() {
+    echo "Linux System Audit Report" > "$TEXT_REPORT"
+    echo "Generated on : $(date)" >> "$TEXT_REPORT"
+    echo "Hostname     : $HOSTNAME_VALUE" >> "$TEXT_REPORT"
+    echo "Report type  : $REPORT_TYPE" >> "$TEXT_REPORT"
+    echo "User         : $(whoami)" >> "$TEXT_REPORT"
+    echo >> "$TEXT_REPORT"
+}
+
+# -----------------------------
+# Hardware audit - short
+# -----------------------------
+hardware_audit_short() {
+    run_cmd "CPU INFORMATION" \
+        "lscpu | grep -E 'Architecture|CPU\\(s\\)|Model name|Thread|Core|Socket'"
+
+    run_cmd "MEMORY INFORMATION" \
+        "free -h"
+
+    run_cmd "DISK INFORMATION" \
+        "df -hT"
+
+    run_cmd "BLOCK DEVICES" \
+        "lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT"
+
+    run_cmd "NETWORK INFORMATION" \
+        "ip -brief address"
+
+    run_cmd "USB DEVICES" \
+        "lsusb 2>/dev/null || echo 'lsusb not available'"
+}
+
+# -----------------------------
+# Hardware audit - full
+# -----------------------------
+hardware_audit_full() {
+    run_cmd "CPU INFORMATION - FULL" \
+        "lscpu"
+
+    run_cmd "MEMORY INFORMATION - FULL" \
+        "free -h && echo && head -20 /proc/meminfo"
+
+    run_cmd "DISK INFORMATION - FULL" \
+        "lsblk -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT && echo && df -hT"
+
+    run_cmd "PARTITION DETAILS" \
+        "fdisk -l 2>/dev/null || echo 'Run as root to view full partition details'"
+
+    run_cmd "NETWORK INTERFACES" \
+        "ip addr"
+
+    run_cmd "NETWORK LINKS / MAC ADDRESSES" \
+        "ip link"
+
+    run_cmd "IP ROUTING TABLE" \
+        "ip route"
+
+    run_cmd "GPU INFORMATION" \
+        "lspci | grep -iE 'vga|3d|display' || echo 'No GPU information found'"
+
+    run_cmd "MOTHERBOARD / BIOS INFORMATION" \
+        "dmidecode -t baseboard -t bios 2>/dev/null || echo 'Run as root for motherboard/BIOS details'"
+
+    run_cmd "USB DEVICES" \
+        "lsusb 2>/dev/null || echo 'lsusb not available'"
+}
+
+# -----------------------------
+# Software audit - short
+# -----------------------------
+software_audit_short() {
+    run_cmd "OPERATING SYSTEM" \
+        "cat /etc/os-release 2>/dev/null || uname -a"
+
+    run_cmd "KERNEL VERSION" \
+        "uname -r"
+
+    run_cmd "SYSTEM ARCHITECTURE" \
+        "uname -m"
+
+    run_cmd "LOGGED-IN USERS" \
+        "who"
+
+    run_cmd "TOP ACTIVE PROCESSES" \
+        "ps aux --sort=-%cpu | head -15"
+
+    run_cmd "RUNNING SERVICES" \
+        "systemctl list-units --type=service --state=running 2>/dev/null | head -20 || service --status-all 2>/dev/null | head -20"
+
+    run_cmd "OPEN PORTS" \
+        "ss -tulpn 2>/dev/null | head -20 || netstat -tulpn 2>/dev/null | head -20"
+}
+
+# -----------------------------
+# Software audit - full
+# -----------------------------
+software_audit_full() {
+    run_cmd "OPERATING SYSTEM - FULL" \
+        "cat /etc/os-release 2>/dev/null && echo && uname -a"
+
+    run_cmd "KERNEL VERSION" \
+        "uname -r"
+
+    run_cmd "SYSTEM ARCHITECTURE" \
+        "uname -m"
+
+    run_cmd "HOST INFORMATION" \
+        "hostnamectl 2>/dev/null || hostname"
+
+    run_cmd "LOGGED-IN USERS" \
+        "who && echo && last -n 10 2>/dev/null"
+
+    run_cmd "ACTIVE PROCESSES" \
+        "ps aux --sort=-%cpu | head -30"
+
+    run_cmd "RUNNING SERVICES - FULL" \
+        "systemctl list-units --type=service --all 2>/dev/null || service --status-all 2>/dev/null"
+
+    run_cmd "OPEN PORTS - FULL" \
+        "ss -tulpn 2>/dev/null || netstat -tulpn 2>/dev/null"
+
+    run_cmd "INSTALLED PACKAGES" \
+        "dpkg -l 2>/dev/null || rpm -qa 2>/dev/null || pacman -Q 2>/dev/null || echo 'Package manager not supported in this script'"
+}
+
+# -----------------------------
+# Optional alert check
+# -----------------------------
+check_cpu_alert() {
+    local cpu_usage
+    cpu_usage=$(top -bn1 | awk '/Cpu\(s\)/ {print int($2 + $4)}' 2>/dev/null)
+
+    if [ -n "${cpu_usage:-}" ]; then
+        write_section "CPU USAGE CHECK"
+        echo "Current CPU usage: ${cpu_usage}%" >> "$TEXT_REPORT"
+
+        if [ "$cpu_usage" -gt 80 ]; then
+            echo "ALERT: CPU usage is higher than 80%" >> "$TEXT_REPORT"
+            log "ALERT: CPU usage is higher than 80%"
+        fi
+    fi
+}
+
+# -----------------------------
+# Email sending
+# -----------------------------
+send_email_report() {
+    if [ "$EMAIL_ENABLED" != "true" ]; then
+        log "Email sending disabled"
+        return
+    fi
+
+    if command -v mail >/dev/null 2>&1; then
+        mail -s "Audit report for $HOSTNAME_VALUE" "$EMAIL_TO" < "$TEXT_REPORT"
+        if [ $? -eq 0 ]; then
+            log "Report sent by email to $EMAIL_TO"
+        else
+            log "Failed to send email report"
+        fi
+    else
+        log "'mail' command not found. Email not sent"
+    fi
+}
+
+# -----------------------------
+# Remote copy using SSH / SCP
+# -----------------------------
+send_remote_copy() {
+    if [ "$REMOTE_ENABLED" != "true" ]; then
+        log "Remote copy disabled"
+        return
+    fi
+
+    if ! command -v ssh >/dev/null 2>&1 || ! command -v scp >/dev/null 2>&1; then
+        log "ssh/scp not found. Remote copy skipped"
+        return
+    fi
+
+    ssh "$REMOTE_USER@$REMOTE_HOST" "mkdir -p '$REMOTE_PATH'" >> "$LOG_FILE" 2>&1
+    if [ $? -ne 0 ]; then
+        log "Failed to create remote directory on $REMOTE_HOST"
+        return
+    fi
+
+    scp "$TEXT_REPORT" "$REMOTE_USER@$REMOTE_HOST:$REMOTE_PATH/" >> "$LOG_FILE" 2>&1
+    if [ $? -eq 0 ]; then
+        log "Report copied successfully to $REMOTE_HOST:$REMOTE_PATH"
+    else
+        log "Failed to copy report to remote host"
+    fi
+}
+
+# -----------------------------
+# Save checksum of report
+# -----------------------------
+save_report_hash() {
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "$TEXT_REPORT" > "${TEXT_REPORT}.sha256"
+        log "SHA256 hash saved: ${TEXT_REPORT}.sha256"
+    fi
+}
+
+# -----------------------------
+# Main function
+# -----------------------------
+main() {
+    log "Audit started"
+    write_header
+
+    write_section "GENERAL SYSTEM INFORMATION"
+    echo "Hostname   : $HOSTNAME_VALUE" >> "$TEXT_REPORT"
+    echo "Date       : $(date)" >> "$TEXT_REPORT"
+    echo "Uptime     : $(uptime -p 2>/dev/null || uptime)" >> "$TEXT_REPORT"
+    echo "Script user: $(whoami)" >> "$TEXT_REPORT"
+
+    if [ "$REPORT_TYPE" = "short" ]; then
+        log "Generating short report"
+        hardware_audit_short
+        software_audit_short
+    elif [ "$REPORT_TYPE" = "full" ]; then
+        log "Generating full report"
+        hardware_audit_full
+        software_audit_full
+    else
+        log "Invalid REPORT_TYPE value: $REPORT_TYPE"
+        echo "[ERROR] REPORT_TYPE must be either 'short' or 'full'"
+        exit 1
+    fi
+
+    check_cpu_alert
+    save_report_hash
+    send_email_report
+    send_remote_copy
+
+    log "Audit finished successfully"
+    log "Report saved to $TEXT_REPORT"
+    echo "Report generated successfully: $TEXT_REPORT"
+}
+
+# -----------------------------
+# Start script
+# -----------------------------
+main

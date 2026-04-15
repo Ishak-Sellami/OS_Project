@@ -1,0 +1,6 @@
+[2026-04-12 23:05:21] Audit started
+[2026-04-12 23:05:21] Generating short report
+[2026-04-12 23:05:24] Report sent by email to i.sellami.official@gmail.com using msmtp
+[2026-04-12 23:05:24] Remote copy disabled
+[2026-04-12 23:05:24] Audit finished successfully
+[2026-04-12 23:05:24] Report saved to ./reports/kali_audit_short_2026-04-12_23-05-21.txt
